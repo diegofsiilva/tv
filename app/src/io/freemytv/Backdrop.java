@@ -33,6 +33,7 @@ final class Backdrop {
     final Bitmap lightImage;            // by day: the background (the lightened frosted version, scaled up on screen)
     final int[] nightFrost, nightGlass; // at night: frosted (the bottom drawer's frosted glass) and glass, darkened
     final Bitmap nightImage;            // at night: the background (the darkened frosted version)
+    Bitmap sharp;                       // the wallpaper (config.properties): shown as it is, not frosted
 
     private Backdrop(Bitmap image, int[] frost, int[] glass, Bitmap wide, Bitmap tall, int[] light, int[] lightGlass,
                      int[] night, int[] nightGlass) {
@@ -95,6 +96,18 @@ final class Backdrop {
         int[] frost = reduce(out, FW, FH, 3, 3);
         int[] glass = reduce(out, GW, GH, 2, 2);
         return new Backdrop(gpu(out), frost, glass, null, null, null, null, null, null);
+    }
+
+    /** The wallpaper from config.properties: the photo shown sharp, the glass and the frost made from it. */
+    static Backdrop wallpaper(Bitmap src) {
+        Bitmap sharp = Bitmap.createBitmap(W, H, Bitmap.Config.ARGB_8888);
+        float scale = Math.max((float) W / src.getWidth(), (float) H / src.getHeight());
+        float sw = src.getWidth() * scale, sh = src.getHeight() * scale;
+        new Canvas(sharp).drawBitmap(src, null, new RectF((W - sw) / 2, (H - sh) / 2, (W + sw) / 2, (H + sh) / 2),
+                new Paint(Paint.FILTER_BITMAP_FLAG | Paint.DITHER_FLAG));
+        Backdrop b = make(src, true);
+        b.sharp = gpu(sharp);
+        return b;
     }
 
     /** How many times smaller the screensaver photo's frosted version is (the glass math uses the same number). */

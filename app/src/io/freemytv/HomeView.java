@@ -55,6 +55,9 @@ import java.util.function.Consumer;
  *  - ↓ on the shelf: everything moves up and the bottom drawer appears (inputs, shortcuts, weather for the next hours
  *    and quotes with the 24 h change); the background lightens (darkens at night). ↑ or Back closes it;
  *  - from sunset to sunrise, a night look: dark background, smoked glass and white text.
+ * With layout=minimal (config.properties), a quieter look instead: the wallpaper edge to edge, the time at the top right,
+ * the apps as white logos in a row at the bottom left and a text menu at the bottom right (inputs, all apps,
+ * settings); no picks, always the night look (white text, smoked glass); the bottom drawer stays the same.
  * Measurements are in a 1920×1080 space (k = width / 1920). The screen is split into layers so the TV's weak GPU only
  * redraws what changed.
  */
@@ -102,6 +105,16 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private static final String[] TABS_DE = {"Entdecken", "Filme", "Serien"};
     private static final String[] TAB_KIND = {null, "movie", "tv"};
     private static final int Z_TOP = 4, Z_CARDS = 5;
+    // Minimal layout: the app row and the menu, both resting on the bottom edge of the safe area.
+    private static final float M_TILE_W = 120, M_TILE_H = 96, M_TILE_GAP = 44, M_ROW_CY = 962, M_MARK = 64;
+    private static final float M_MENU_BASE = 1000, M_MENU_LINE = 62, M_CLOCK_BASE = 148;
+    private final boolean minimal = "minimal".equals(Config.LAYOUT);
+    // wallpaper=white or #RRGGBB: a plain color; a light one turns the minimal layout's text and logos dark.
+    private final int paper = Config.WALL_COLOR.isEmpty() ? 0 : android.graphics.Color.parseColor(Config.WALL_COLOR);
+    private final boolean lightPaper = paper != 0 && android.graphics.Color.luminance(paper) > 0.6f;
+    private final int mInk = lightPaper ? L_INK : 0xFFFFFFFF;
+    private Paint mClock, mMenu, mMenuOn;
+    private Shader mScrimBottom;
 
     private final Activity activity;
     private final Scene scene = new Scene();
@@ -164,6 +177,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     }
     private final android.graphics.PorterDuffColorFilter whiteLogo =
             new android.graphics.PorterDuffColorFilter(0xFFFFFFFF, android.graphics.PorterDuff.Mode.SRC_IN);
+    private final android.graphics.PorterDuffColorFilter inkLogo =
+            new android.graphics.PorterDuffColorFilter(L_INK, android.graphics.PorterDuff.Mode.SRC_IN);
     private final RectF platterRect = new RectF();
     private int shelfIndex;
 
@@ -183,6 +198,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private final Spring heroFocus = new Spring(0.28f, 0.85f, 0);
     private final RectF heroButton = new RectF();
     private Backdrop bgFrom, bgTo;     // null = gradient (no photo)
+    private Backdrop wall;             // the wallpaper from config.properties: it replaces the picks' photos
     private final int[] frostMix = new int[Backdrop.FW * Backdrop.FH];
 
     // Bottom drawer
@@ -397,6 +413,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         handler.postDelayed(tick, 15_000);
         checkNotices();
         reload();
+        loadWallpaper();
         updatePalette();
         updatePicks();
         if (sheetOpen) closeSheet();
@@ -450,6 +467,12 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     /** The three corner buttons, with their names in the current language. */
     private void makeLightButtons() {
         lightButtons.clear();
+        if (minimal) {
+            lightButtons.add(HomeApps.action(HomeApps.INPUTS, "inputs", Ui.tr("Entradas HDMI", "HDMI Inputs"), "hdmi"));
+            lightButtons.add(HomeApps.action(HomeApps.ALL_APPS, "all", Ui.tr("Todos os Apps", "All Apps"), "apps"));
+            lightButtons.add(HomeApps.action(HomeApps.SETTINGS, "settings", Ui.tr("Configurações", "Settings"), "settings"));
+            return;
+        }
         lightButtons.add(HomeApps.action(HomeApps.LIVE_TV, "live", Ui.tr("TV aberta", "Live TV"), "live_tv"));
         lightButtons.add(HomeApps.action(HomeApps.INPUTS, "inputs", Ui.tr("Entradas HDMI", "HDMI Inputs"), "hdmi"));
         lightButtons.add(HomeApps.action(HomeApps.SETTINGS, "settings", Ui.tr("Configurações", "Settings"), "settings"));
@@ -504,7 +527,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         float kk = width / 1920f;
         sky.layout(0, 0, width, height);
         place(heroLayer, 0, 0);
-        place(status, width - status.getMeasuredWidth(), 0);
+        // Minimal: the menu sits at the bottom right instead of the buttons at the top.
+        place(status, width - status.getMeasuredWidth(), minimal ? Math.round(820 * kk) : 0);
         place(platter, 0, Math.round(750 * kk));
         place(tiles, 0, Math.round(790 * kk));
         place(drawerLayer, 0, Math.round(470 * kk));
@@ -565,6 +589,18 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         lWeather = Ui.text(Ui.medium, 34 * k, L_DIM);
         lClockQuote = Ui.numbers(Ui.medium, 28 * k, L_DIM);
         lightGradient = null;
+        mClock = Ui.numbers(Ui.medium, 64 * k, mInk);
+        mClock.setTextAlign(Paint.Align.RIGHT);
+        mMenu = Ui.text(Ui.medium, 34 * k, Ui.alpha(mInk, 0.72f));
+        mMenu.setTextAlign(Paint.Align.RIGHT);
+        mMenuOn = Ui.text(Ui.semibold, 36 * k, mInk);
+        mMenuOn.setTextAlign(Paint.Align.RIGHT);
+        if (!lightPaper) {
+            mClock.setShadowLayer(18 * k, 0, 2 * k, 0x66000000);
+            mMenu.setShadowLayer(14 * k, 0, 1 * k, 0x80000000);
+            mMenuOn.setShadowLayer(14 * k, 0, 1 * k, 0x80000000);
+        }
+        mScrimBottom = null;
         buttonPaint = Ui.text(Ui.semibold, 29 * k, INK);
         capsuleText = Ui.numbers(Ui.medium, 29 * k, 0xF2FFFFFF);
         tipPaint = Ui.text(Ui.semibold, 25 * k, 0xF2FFFFFF);
@@ -799,6 +835,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     /** Swaps the background with a cross-fade (from one image to another, from the gradient to an image, or back). */
     private void showBackdrop(Backdrop b) {
+        if (wall != null) b = wall;
         if (b == bgTo) return;
         long up = SystemClock.uptimeMillis();
         // In the middle of another swap, start from whichever is more visible.
@@ -848,7 +885,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     /** Day or night right now (from the sun at your location); `animate`: with the transition. */
     private void checkNight(boolean animate) {
-        boolean want = data.isNight(System.currentTimeMillis());
+        boolean want = minimal ? !lightPaper : data.isNight(System.currentTimeMillis());
         if (want == nightTarget) return;
         nightTarget = want;
         if (animate && running) {
@@ -1098,6 +1135,16 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     private void layoutShelf() {
         int n = shelf.size();
+        if (minimal) {
+            float tw = M_TILE_W * k, th = M_TILE_H * k, gap = M_TILE_GAP * k, x = MARGIN * k, cy = M_ROW_CY * k;
+            platterRect.setEmpty();
+            for (int i = 0; i < n; i++) {
+                tileRects[i].set(x, cy - th / 2, x + tw, cy + th / 2);
+                x += tw + gap;
+            }
+            crispLogos.clear();
+            return;
+        }
         float pad = SHELF_PAD * k, gap = TILE_GAP * k, th = L_TILE_H * k;
         float full = (CONTENT_R - MARGIN) * k;
         float tw = Math.min(TILE_MAX_W * k, (full - Math.max(0, n - 1) * gap) / Math.max(1, n));
@@ -1114,7 +1161,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     /** Shelf layer: the glass bar and its shadow (it only changes with the background). */
     private void drawPlatter(Canvas c) {
-        if (shelf.isEmpty()) return;
+        if (shelf.isEmpty() || minimal) return;
         float radius = (TILE_RADIUS + SHELF_PAD) * k;
         tmp.set(platterRect);
         tmp.offset(0, 18 * k);
@@ -1225,6 +1272,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
      * top. No border and no reflection, as Apple does it.
      */
     private void drawShelfTile(Canvas c, int i) {
+        if (minimal) {
+            drawMinimalTile(c, i);
+            return;
+        }
         HomeApps.Item it = shelf.get(i);
         float f = tileFocus[i].value, fc = Ui.clamp(f), s = 1 + FOCUS_GROW * f;
         RectF base = tileRects[i];
@@ -1279,6 +1330,42 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     }
 
     /**
+     * Minimal: the app's official symbol in white (Marks: Netflix's N, YouTube's play button...), or its own logo in
+     * white for the others, no tile; almost white at rest, full white and 20% larger when focused, with a short bar under it. An app
+     * without either shows its own TV art, small and rounded.
+     */
+    private void drawMinimalTile(Canvas c, int i) {
+        HomeApps.Item it = shelf.get(i);
+        float f = tileFocus[i].value, fc = Ui.clamp(f), s = 1 + FOCUS_GROW * f;
+        RectF base = tileRects[i];
+        float cx = base.centerX(), cy = base.centerY(), bw = base.width(), bh = base.height();
+        cell.set(cx - bw * s / 2, cy - bh * s / 2, cx + bw * s / 2, cy + bh * s / 2);
+        int alpha = Math.round(255 * (0.86f + 0.14f * fc));
+        if (Marks.draw(getContext(), c, it.key, cx, cy, M_MARK * k * s, M_MARK * k * (1 + FOCUS_GROW), alpha, mInk)) {
+            // drawn
+        } else if (it.logo != null) {
+            bitmapPaint.setAlpha(alpha);
+            drawLogo(c, it, cell, s, lightPaper ? 3 : 1);
+            bitmapPaint.setAlpha(255);
+        } else if (it.tile != null) {
+            float th = bh * 0.7f * s, tw = th * it.tile.getWidth() / Math.max(1, it.tile.getHeight());
+            tmp.set(cx - tw / 2, cy - th / 2, cx + tw / 2, cy + th / 2);
+            bitmapPaint.setAlpha(alpha);
+            imageFill.setAlpha(alpha);   // roundImage's paint on Android 9 to 11
+            roundImage(c, it.tile, tmp, 10 * k * s);
+            bitmapPaint.setAlpha(255);
+            imageFill.setAlpha(255);
+        }
+        if (fc > 0.01f) {
+            fill.setShader(null);
+            fill.setColor(Ui.alpha(mInk, fc));
+            float bar = 44 * k * fc, y = base.bottom + 30 * k;
+            tmp.set(cx - bar / 2, y, cx + bar / 2, y + 5 * k);
+            c.drawRoundRect(tmp, 2.5f * k, 2.5f * k, fill);
+        }
+    }
+
+    /**
      * `image` stretched over `cell`, with corners of radius `r`. Android 12+ clips to the rounded shape; on Android 9 to
      * 11 that anti-aliased clip costs the GPU a mask on every frame of a focus animation (measured on a Mi Box 3: most of
      * a 49 ms frame), so there the image is the shader of a rounded rectangle instead, which looks the same.
@@ -1322,7 +1409,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             top = Math.round(top);
         }
         tmp.set(left, top, left + dw, top + dh);
-        bitmapPaint.setColorFilter(mode == 1 ? whiteLogo : null);
+        bitmapPaint.setColorFilter(mode == 1 ? whiteLogo : mode == 3 ? inkLogo : null);
         c.drawBitmap(logo, null, tmp, bitmapPaint);
         bitmapPaint.setColorFilter(null);
     }
@@ -1878,6 +1965,29 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         });
     }
 
+    /** The wallpaper (config.properties → assets/wallpaper.jpg), read once, in the background. */
+    private void loadWallpaper() {
+        if (wall != null) return;
+        final Context c = getContext().getApplicationContext();
+        LOADER.execute(() -> {
+            Bitmap src;
+            if (paper != 0) {
+                src = Bitmap.createBitmap(16, 9, Bitmap.Config.ARGB_8888);
+                src.eraseColor(paper);
+            } else try (java.io.InputStream in = c.getAssets().open("wallpaper.jpg")) {
+                src = android.graphics.BitmapFactory.decodeStream(in);
+            } catch (java.io.IOException e) {
+                return;     // no wallpaper: the picks' photos or the gradient
+            }
+            if (src == null) return;
+            final Backdrop b = Backdrop.wallpaper(src);
+            handler.post(() -> {
+                wall = b;
+                showBackdrop(b);
+            });
+        });
+    }
+
     // MARK: - Lists (in the background, so returning to the home screen isn't delayed)
 
     private void reload() {
@@ -2365,6 +2475,13 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             topRects[3 + i].set(right - b, cy - b / 2, right, cy + b / 2);
             right -= b + L_BUTTON_GAP * k;
         }
+        if (minimal && mMenuOn != null) {
+            for (int i = 0; i < lightButtons.size(); i++) {
+                float base = M_MENU_BASE * k - (lightButtons.size() - 1 - i) * M_MENU_LINE * k;
+                float tw = mMenuOn.measureText(lightButtons.get(i).label);
+                topRects[3 + i].set(CONTENT_R * k - tw, base - 44 * k, CONTENT_R * k, base + 14 * k);
+            }
+        }
         float top = L_CARDS_TOP * k, ch = L_CARD_H * k, g = L_CARD_GAP * k, left = MARGIN * k, tall = L_TALL_W * k;
         float wide = (CONTENT_R - MARGIN) * k - 2 * tall - 2 * g;
         cardRects[0].set(left, top, left + wide, top + ch);
@@ -2375,7 +2492,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     /** The three cards of the current tab (Explore, Movies, Shows) and the background taken from the first one. */
     private void updateCards() {
-        List<Recs.Pick> list = recs.now(TAB_KIND[tab]);
+        List<Recs.Pick> list = minimal ? new ArrayList<>() : recs.now(TAB_KIND[tab]);
         if (!samePicks(list, cards)) {
             cards = list;
             cardIndex = Math.min(cardIndex, Math.max(0, list.size() - 1));
@@ -2384,7 +2501,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 retarget(false);
             }
         }
-        for (Recs.Pick p : recs.wanted()) recs.backdrop(p);   // all three tabs preloaded: switching tabs is instant
+        if (!minimal) for (Recs.Pick p : recs.wanted()) recs.backdrop(p);   // all three tabs preloaded: switching tabs is instant
         Backdrop b = cards.isEmpty() ? null : recs.backdrop(cards.get(0));
         if (cards.isEmpty() || b != null) showBackdrop(b);
         heroDirty = true;
@@ -2433,12 +2550,46 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     }
 
     private void drawLightImage(Canvas c, Backdrop b, float alpha) {
+        if (b.sharp != null && minimal) {
+            drawImage(c, b.sharp, alpha);
+            drawMinimalScrims(c, alpha);
+            return;
+        }
+        if (b.sharp != null) {
+            drawImage(c, b.sharp, alpha);
+            // At night the photo dims, so the white text stays readable.
+            if (night > 0.001f) {
+                fill.setShader(null);
+                fill.setColor(Ui.alpha(0xFF000000, 0.55f * night * alpha));
+                c.drawRect(screen, fill);
+            }
+            return;
+        }
         if (night < 0.999f || b.nightImage == null) drawImage(c, b.lightImage, alpha);
         if (night > 0.001f) drawImage(c, b.nightImage, alpha * night);
     }
 
+    /** Minimal: a soft shade at the bottom (behind the apps and the menu), nothing else; the time has its own shadow. */
+    private void drawMinimalScrims(Canvas c, float alpha) {
+        if (lightPaper) return;
+        if (mScrimBottom == null) {
+            mScrimBottom = new LinearGradient(0, h, 0, h * 0.58f, new int[] {0x8C000000, 0x40000000, 0x00000000},
+                    new float[] {0, 0.5f, 1}, Shader.TileMode.CLAMP);
+        }
+        fill.setColor(0xFF000000);
+        fill.setAlpha(Math.round(255 * alpha));
+        fill.setShader(mScrimBottom);
+        c.drawRect(0, h * 0.58f, w, h, fill);
+        fill.setShader(null);
+        fill.setAlpha(255);
+    }
+
     private void drawLightTop(Canvas c) {
         applyTone();
+        if (minimal) {
+            c.drawText(clockText, CONTENT_R * k, M_CLOCK_BASE * k, mClock);
+            return;
+        }
         if (!picksOn()) {
             drawClock(c);
             if (HomeData.coinCount() > 0) drawQuotes(c);
@@ -2478,7 +2629,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     }
 
     private boolean picksOn() {
-        return Recs.hasKey(getContext());
+        return !minimal && Recs.hasKey(getContext());
     }
 
     private void drawClock(Canvas c) {
@@ -2577,6 +2728,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
      */
     private void drawLightButtons(Canvas c) {
         applyTone();
+        if (minimal) {
+            drawMinimalMenu(c);
+            return;
+        }
         for (int i = 0; i < 3; i++) {
             RectF r = topRects[3 + i];
             float f = Ui.clamp(topFocus[3 + i].value), s = 1 + 0.1f * f, rad = r.width() / 2 * s;
@@ -2604,7 +2759,66 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         }
     }
 
+    /** Minimal: the menu as right-aligned text lines; the focused one turns white and bold, and slides left a little. */
+    private void drawMinimalMenu(Canvas c) {
+        for (int i = 0; i < lightButtons.size(); i++) {
+            RectF r = topRects[3 + i];
+            float f = Ui.clamp(topFocus[3 + i].value);
+            String label = lightButtons.get(i).label;
+            float x = r.right - 10 * k * f, y = M_MENU_BASE * k - (lightButtons.size() - 1 - i) * M_MENU_LINE * k;
+            if (f > 0.5f) {
+                mMenuOn.setAlpha(Math.round(255 * Math.min(1, 0.72f + f * 0.28f)));
+                c.drawText(label, x, y, mMenuOn);
+            } else {
+                mMenu.setAlpha(Math.round(184 + 71 * f));
+                c.drawText(label, x, y, mMenu);
+            }
+        }
+    }
+
+    /**
+     * Minimal: ↑ or → past the last app reach the menu; in the menu ↑/↓ move, ↓ past the last line opens the drawer,
+     * ← goes back to the apps.
+     */
+    private boolean moveMinimal(int dx, int dy) {
+        int n = lightButtons.size();
+        switch (zone) {
+            case Z_SHELF:
+                if (dy < 0 || (dx > 0 && shelfIndex >= shelf.size() - 1)) {
+                    zone = Z_TOP;
+                    topIndex = 3 + (dy < 0 ? 0 : n - 1);
+                    break;
+                }
+                return false;
+            case Z_TOP:
+                if (dy != 0) {
+                    int next = topIndex + dy;
+                    if (next >= 3 + n) {
+                        if (drawerItems.isEmpty()) return true;
+                        openDrawer();
+                    } else if (next < 3) {
+                        return true;
+                    } else {
+                        topIndex = next;
+                    }
+                } else if (dx < 0) {
+                    if (shelf.isEmpty()) return true;
+                    zone = Z_SHELF;
+                    shelfIndex = shelf.size() - 1;
+                } else {
+                    return true;
+                }
+                break;
+            default:
+                return false;
+        }
+        retarget(false);
+        click.move();
+        return true;
+    }
+
     private boolean moveLight(int dx, int dy) {
+        if (minimal) return moveMinimal(dx, dy);
         switch (zone) {
             case Z_SHELF:
                 if (dy >= 0 || shelf.isEmpty()) return false;

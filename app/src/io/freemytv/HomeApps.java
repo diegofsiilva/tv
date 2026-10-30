@@ -90,6 +90,7 @@ final class HomeApps {
         {"peacock", "Peacock", "com.peacocktv.peacockandroid", "6E55DC", "", "1"},
         {"globoplay", "Globoplay", "com.globo.globotv", "FF5A1F", "tint", "1"},
         {"spotify", "Spotify", "com.spotify.tv.android", "1DB954", "", "1"},
+        {"canais", "Canais", "io.canais", "2C2C2E", "", "1"},
     };
     static final int MAX_SHELF = 8;
     /** Live TV apps of some brands (the antenna's channels open through the standard Android request first). */
@@ -153,12 +154,19 @@ final class HomeApps {
         return null;
     }
 
-    /** The shelf's packages in order: the user's list (Settings > Shelf), or the built-in one. */
+    /** The shelf's packages in order: the user's list (Settings > Shelf), config.properties' or the built-in one. */
     static List<String> shelfPackages(Context c) {
         List<String> custom = Prefs.shelf();
         if (custom != null) return custom;
         List<String> out = new ArrayList<>();
         PackageManager pm = c.getPackageManager();
+        if (!Config.SHELF.isEmpty()) {
+            for (String p : Config.SHELF.split(",")) {
+                p = p.trim();
+                if (!p.isEmpty() && out.size() < MAX_SHELF && launchIntent(pm, p) != null) out.add(p);
+            }
+            return out;
+        }
         for (String[] d : SHELF) if (out.size() < MAX_SHELF && launchIntent(pm, d[2]) != null) out.add(d[2]);
         return out;
     }
