@@ -86,6 +86,30 @@ final class Recs {
     }
     /** Country for "what streams where" (config.properties "tmdb_region", e.g. US, GB, BR). */
     private static final String REGION = Config.TMDB_REGION.trim().toUpperCase(Locale.ROOT);
+    /** TMDB genre ids by English name; movies and shows number some genres differently, so a name can have two. */
+    private static final String[][] GENRE_IDS = {
+        {"action", "28", "10759"}, {"adventure", "12", "10759"}, {"animation", "16"}, {"comedy", "35"}, {"crime", "80"},
+        {"documentary", "99"}, {"drama", "18"}, {"family", "10751"}, {"fantasy", "14", "10765"}, {"history", "36"},
+        {"horror", "27"}, {"music", "10402"}, {"mystery", "9648"}, {"romance", "10749"},
+        {"science fiction", "878", "10765"}, {"sci-fi", "878", "10765"}, {"thriller", "53"}, {"war", "10752", "10768"},
+        {"western", "37"}, {"kids", "10762"}, {"news", "10763"}, {"reality", "10764"}, {"soap", "10766"},
+        {"talk", "10767"}, {"politics", "10768"}, {"tv movie", "10770"},
+    };
+    /** Genres left out of the picks (config.properties "hide_genres": English names or TMDB ids). */
+    private static final java.util.Set<Integer> HIDDEN_GENRES = hiddenGenres(Config.HIDE_GENRES);
+
+    private static java.util.Set<Integer> hiddenGenres(String names) {
+        java.util.Set<Integer> ids = new java.util.TreeSet<>();
+        for (String name : names.split(",")) {
+            name = name.trim().toLowerCase(Locale.ROOT);
+            if (name.matches("\\d{1,6}")) ids.add(Integer.parseInt(name));
+            for (String[] g : GENRE_IDS) {
+                if (!g[0].equals(name)) continue;
+                for (int i = 1; i < g.length; i++) ids.add(Integer.parseInt(g[i]));
+            }
+        }
+        return ids;
+    }
 
     private static Recs instance;
 
@@ -384,6 +408,11 @@ final class Recs {
         for (int id : services.keySet()) ids.append(ids.length() == 0 ? "" : "|").append(id);
         String common = "&language=" + lang() + "&watch_region=" + REGION + "&with_watch_monetization_types=flatrate&include_adult=false"
                 + "&sort_by=popularity.desc&with_watch_providers=" + URLEncoder.encode(ids.toString(), "UTF-8");
+        if (!HIDDEN_GENRES.isEmpty()) {
+            StringBuilder hidden = new StringBuilder();
+            for (int id : HIDDEN_GENRES) hidden.append(hidden.length() == 0 ? "" : ",").append(id);
+            common += "&without_genres=" + URLEncoder.encode(hidden.toString(), "UTF-8");
+        }
         // 1. Trending this week (TMDB goes by what people are watching and searching for right now), only what is
         //    on one of the TV's services: the details say where (and are then ready).
         List<Pick> hotMovies = new ArrayList<>(), hotShows = new ArrayList<>();
@@ -446,6 +475,8 @@ final class Recs {
     private static void add(List<Pick> list, JSONObject o, String kind) {
         String backdrop = o.optString("backdrop_path", "");
         if (backdrop.isEmpty() || "null".equals(backdrop)) return;
+        JSONArray genres = o.optJSONArray("genre_ids");
+        for (int i = 0; genres != null && i < genres.length(); i++) if (HIDDEN_GENRES.contains(genres.optInt(i))) return;
         Pick p = new Pick();
         p.id = o.optInt("id");
         p.kind = kind;
@@ -552,6 +583,7 @@ final class Recs {
 
     private long sourceStamp() {
         long stamp = Config.TMDB_KEY.hashCode() * 31L + REGION.hashCode();
+        stamp = stamp * 31L + HIDDEN_GENRES.hashCode();
         for (String[] service : SERVICES) stamp = stamp * 31L + (installed(service[2]) ? service[2].hashCode() : 0);
         return stamp;
     }

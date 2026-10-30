@@ -191,6 +191,25 @@ var Data = (function () {
   var REGION = Place.country;
   var API = 'https://api.themoviedb.org/3';
 
+  /** TMDB genre ids by English name; movies and shows number some genres differently, so a name can have two. */
+  var GENRE_IDS = {
+    'action': [28, 10759], 'adventure': [12, 10759], 'animation': [16], 'comedy': [35], 'crime': [80],
+    'documentary': [99], 'drama': [18], 'family': [10751], 'fantasy': [14, 10765], 'history': [36], 'horror': [27],
+    'music': [10402], 'mystery': [9648], 'romance': [10749], 'science fiction': [878, 10765], 'sci-fi': [878, 10765],
+    'thriller': [53], 'war': [10752, 10768], 'western': [37], 'kids': [10762], 'news': [10763], 'reality': [10764],
+    'soap': [10766], 'talk': [10767], 'politics': [10768], 'tv movie': [10770]
+  };
+  /** Genres left out of the picks (config.properties "hide_genres": English names or TMDB ids). */
+  var HIDDEN_GENRES = (function () {
+    var ids = [], names = (CONFIG.hideGenres || '').split(',');
+    for (var i = 0; i < names.length; i++) {
+      var n = names[i].replace(/^\s+|\s+$/g, '').toLowerCase();
+      var found = /^\d{1,6}$/.test(n) ? [parseInt(n, 10)] : GENRE_IDS[n] || [];
+      for (var j = 0; j < found.length; j++) if (ids.indexOf(found[j]) < 0) ids.push(found[j]);
+    }
+    return ids.sort(function (a, b) { return a - b; });
+  })();
+
   /** Service name on TMDB (part of it, lowercase) → our key, how to find its app on the TV (id, name), its name. */
   var SERVICES = [
     ['netflix', 'netflix', /^netflix$/, /netflix/i, 'Netflix'],
@@ -244,7 +263,7 @@ var Data = (function () {
   }
 
   function sourceStamp() {
-    var s = KEY.length + ':' + KEY.slice(-6) + ':' + REGION;
+    var s = KEY.length + ':' + KEY.slice(-6) + ':' + REGION + ':' + HIDDEN_GENRES.join(',');
     for (var i = 0; i < SERVICES.length; i++) s += appFor(SERVICES[i][1]) ? '1' : '0';
     return s;
   }
@@ -335,6 +354,7 @@ var Data = (function () {
 
   function addPick(list, o, kind) {
     if (!o.backdrop_path) return;
+    for (var i = 0; o.genre_ids && i < o.genre_ids.length; i++) if (HIDDEN_GENRES.indexOf(o.genre_ids[i]) >= 0) return;
     list.push({id: o.id, kind: kind, title: kind === 'movie' ? o.title : o.name, backdrop: o.backdrop_path, meta: '', app: null, detailed: false});
   }
 
@@ -366,7 +386,8 @@ var Data = (function () {
       }
       if (!ids.length) { done(new Error("none of the TV's streaming apps are on TMDB")); return; }
       var common = '&language=' + lang() + '&watch_region=' + REGION + '&with_watch_monetization_types=flatrate&include_adult=false'
-          + '&sort_by=popularity.desc&with_watch_providers=' + encodeURIComponent(ids.join('|'));
+          + '&sort_by=popularity.desc&with_watch_providers=' + encodeURIComponent(ids.join('|'))
+          + (HIDDEN_GENRES.length ? '&without_genres=' + encodeURIComponent(HIDDEN_GENRES.join(',')) : '');
       var hot = {movie: [], tv: []}, fresh = {movie: [], tv: []};
       each(['movie', 'tv'], function (kind, next) {
         tmdb('/trending/' + kind + '/week?language=' + lang(), function (e, r) {

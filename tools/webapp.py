@@ -47,6 +47,7 @@ def read_config(path):
     return {
         'tmdbKey': values.get('tmdb_key', ''),
         'tmdbRegion': values.get('tmdb_region', 'US') or 'US',
+        'hideGenres': values.get('hide_genres', ''),
         'latitude': number('latitude', '40.7128'),
         'longitude': number('longitude', '-74.0060'),
         'city': values.get('city', ''),
