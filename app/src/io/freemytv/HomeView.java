@@ -470,12 +470,12 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (minimal) {
             lightButtons.add(HomeApps.action(HomeApps.INPUTS, "inputs", Ui.tr("Entradas HDMI", "HDMI Inputs"), "hdmi"));
             lightButtons.add(HomeApps.action(HomeApps.ALL_APPS, "all", Ui.tr("Todos os Apps", "All Apps"), "apps"));
-            lightButtons.add(HomeApps.action(HomeApps.SETTINGS, "settings", Ui.tr("Configurações", "Settings"), "settings"));
+            lightButtons.add(HomeApps.action(HomeApps.ANDROID_SETTINGS, "settings", Ui.tr("Configurações", "Settings"), "settings"));
             return;
         }
         lightButtons.add(HomeApps.action(HomeApps.LIVE_TV, "live", Ui.tr("TV aberta", "Live TV"), "live_tv"));
         lightButtons.add(HomeApps.action(HomeApps.INPUTS, "inputs", Ui.tr("Entradas HDMI", "HDMI Inputs"), "hdmi"));
-        lightButtons.add(HomeApps.action(HomeApps.SETTINGS, "settings", Ui.tr("Configurações", "Settings"), "settings"));
+        lightButtons.add(HomeApps.action(HomeApps.ANDROID_SETTINGS, "settings", Ui.tr("Configurações", "Settings"), "settings"));
     }
 
     private static String[] tabs() {
