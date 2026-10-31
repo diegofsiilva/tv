@@ -55,6 +55,8 @@ final class HomeApps {
     private HomeApps() {}
 
     static final int APP = 0, LIVE_TV = 1, INPUT = 2, ALL_APPS = 3, SETTINGS = 4, ANDROID_SETTINGS = 5;
+    /** The corner Settings button: the TV's quick settings over the screen, or its settings without them. */
+    static final int QUICK_SETTINGS = 6;
     /** The "HDMI Inputs" button: opens the bottom drawer on the inputs (the home screen handles it). */
     static final int INPUTS = 7;
     /** Image size of each card (16:9; on screen it shows up to ~330 px wide). */
@@ -380,6 +382,15 @@ final class HomeApps {
             case SETTINGS:
                 intent = new Intent().setComponent(new ComponentName(a, SettingsActivity.class));
                 break;
+            case QUICK_SETTINGS:
+                // TCL's quick settings: a panel over the screen, as the remote's settings button opens it
+                try {
+                    a.startActivity(new Intent("com.tcl.settings.action.QUICKSETTINGS").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+                    return true;
+                } catch (ActivityNotFoundException | SecurityException e) {
+                    intent = new Intent(Settings.ACTION_SETTINGS);
+                }
+                break;
             case ANDROID_SETTINGS:
                 intent = new Intent(Settings.ACTION_SETTINGS);
                 break;
@@ -389,7 +400,9 @@ final class HomeApps {
         if (intent == null) return false;
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         try {
-            a.startActivity(intent, ActivityOptions.makeScaleUpAnimation(from, x, y, Math.max(w, 1), Math.max(h, 1)).toBundle());
+            // The TV's settings slide in as their own panel over the home screen, as on the original one
+            a.startActivity(intent, it.kind == QUICK_SETTINGS ? null
+                    : ActivityOptions.makeScaleUpAnimation(from, x, y, Math.max(w, 1), Math.max(h, 1)).toBundle());
             return true;
         } catch (ActivityNotFoundException | SecurityException e) {
             AppLog.w("couldn't open " + it.label + ": " + e.getMessage());
