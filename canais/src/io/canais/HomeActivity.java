@@ -493,9 +493,12 @@ public class HomeActivity extends Activity {
             card.placeholder.setText(it.name);
             Images.load(card.image, it.image, cardW, cardH, card.placeholder);
             boolean on = grid.hasFocus() && position == grid.getSelectedItemPosition();
-            card.frame.setScaleX(on ? 1.08f : 1f);
-            card.frame.setScaleY(on ? 1.08f : 1f);
-            if (on) focused = card;
+            card.set(on);
+            if (on) {
+                // The grid rebinds the selected card while scrolling: turn off the one that had the focus
+                if (focused != null && focused != card) focused.set(false);
+                focused = card;
+            }
             return card.root;
         }
     };

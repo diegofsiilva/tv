@@ -71,9 +71,12 @@ final class Ui {
         v.setClipToOutline(true);
     }
 
-    /** The tvOS focus: grows a little and casts a deeper shadow. */
+    /** How much a focused card grows. */
+    static final float LIFT = 1.12f;
+
+    /** The tvOS focus: grows and casts a deeper shadow. */
     static void lift(View v, boolean on) {
-        float s = on ? 1.08f : 1f;
+        float s = on ? LIFT : 1f;
         v.animate().scaleX(s).scaleY(s).translationZ(on ? dp(v.getContext(), 14) : 0).setDuration(160).start();
     }
 
@@ -149,7 +152,46 @@ final class Ui {
             frame.setPivotX(frame.getWidth() / 2f);
             frame.setPivotY(frame.getHeight() / 2f);
             lift(frame, on);
+            ring(on);
+            // The caption moves down with the grown image, so it isn't covered
+            float down = on ? frame.getLayoutParams().height * (LIFT - 1) / 2 : 0;
+            title.animate().translationY(down).setDuration(160).start();
+            sub.animate().translationY(down).setDuration(160).start();
             title.setTypeface(on ? BOLD : MEDIUM);
+        }
+
+        /** The same, at once (a recycled card in a grid). */
+        void set(boolean on) {
+            float s = on ? LIFT : 1f, down = on ? frame.getLayoutParams().height * (LIFT - 1) / 2 : 0;
+            frame.animate().cancel();
+            title.animate().cancel();
+            sub.animate().cancel();
+            frame.setScaleX(s);
+            frame.setScaleY(s);
+            frame.setTranslationZ(on ? dp(frame.getContext(), 14) : 0);
+            ring(on);
+            title.setTranslationY(down);
+            sub.setTranslationY(down);
+            title.setTypeface(on ? BOLD : MEDIUM);
+        }
+
+        /** A thick outline around the focused card, dark with a white line inside: it shows on any picture. */
+        private void ring(boolean on) {
+            if (!on) {
+                frame.setForeground(null);
+                return;
+            }
+            Context c = frame.getContext();
+            int dark = dp(c, 4), light = dp(c, 3);
+            GradientDrawable outer = new GradientDrawable(), inner = new GradientDrawable();
+            outer.setCornerRadius(dp(c, 14));
+            outer.setStroke(dark, INK);
+            inner.setCornerRadius(dp(c, 14) - dark);
+            inner.setStroke(light, WHITE);
+            android.graphics.drawable.LayerDrawable g =
+                    new android.graphics.drawable.LayerDrawable(new android.graphics.drawable.Drawable[] {outer, inner});
+            g.setLayerInset(1, dark, dark, dark, dark);
+            frame.setForeground(g);
         }
     }
 }
