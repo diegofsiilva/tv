@@ -470,12 +470,12 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (minimal) {
             lightButtons.add(HomeApps.action(HomeApps.INPUTS, "inputs", Ui.tr("Entradas HDMI", "HDMI Inputs"), "hdmi"));
             lightButtons.add(HomeApps.action(HomeApps.ALL_APPS, "all", Ui.tr("Todos os Apps", "All Apps"), "apps"));
-            lightButtons.add(HomeApps.action(HomeApps.ANDROID_SETTINGS, "settings", Ui.tr("Configurações", "Settings"), "settings"));
+            lightButtons.add(HomeApps.action(HomeApps.QUICK_SETTINGS, "settings", Ui.tr("Configurações", "Settings"), "settings"));
             return;
         }
         lightButtons.add(HomeApps.action(HomeApps.LIVE_TV, "live", Ui.tr("TV aberta", "Live TV"), "live_tv"));
         lightButtons.add(HomeApps.action(HomeApps.INPUTS, "inputs", Ui.tr("Entradas HDMI", "HDMI Inputs"), "hdmi"));
-        lightButtons.add(HomeApps.action(HomeApps.ANDROID_SETTINGS, "settings", Ui.tr("Configurações", "Settings"), "settings"));
+        lightButtons.add(HomeApps.action(HomeApps.QUICK_SETTINGS, "settings", Ui.tr("Configurações", "Settings"), "settings"));
     }
 
     private static String[] tabs() {
@@ -2006,7 +2006,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         });
     }
 
-    // MARK: - Keys: only the arrows, OK and Back (system keys pass through to the system)
+    // MARK: - Keys: the arrows, OK, Back and Settings (system keys pass through to the system)
+
+    /** The settings button of TCL's remotes (TCL's own key code). */
+    private static final int KEY_SETTINGS_TCL = 4077;
 
     boolean onKey(KeyEvent e) {
         wake();
@@ -2034,6 +2037,13 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 } else {
                     if (okDown && !e.isCanceled() && spoken.keyClick()) activate();
                     okDown = false;
+                }
+                return true;
+            case KEY_SETTINGS_TCL:
+                // The remote's settings button: TCL leaves it to the home screen (Google TV's answers it with its own
+                // panel)
+                if (down && e.getRepeatCount() == 0) {
+                    HomeApps.open(activity, HomeApps.action(HomeApps.QUICK_SETTINGS, "settings", "", "settings"), this, 0, 0, 1, 1);
                 }
                 return true;
             case KeyEvent.KEYCODE_BACK:
