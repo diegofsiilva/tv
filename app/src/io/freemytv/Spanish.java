@@ -21,6 +21,8 @@ final class Spanish {
             case "Crypto": return "Cripto";
             case "24h change": return "variación en 24 h";
             case "For You": return "Para ti";
+            case "Today's games": return "Partidos de hoy";
+            case "No more games today": return "No hay más partidos hoy";
             case "Couldn't open ": return "No se pudo abrir ";
             case " of ": return " de ";
             case ", tab ": return ", pestaña ";

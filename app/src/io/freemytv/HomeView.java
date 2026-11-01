@@ -157,6 +157,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private final RectF[] cardRects = new RectF[3];
     private final List<HomeApps.Item> lightButtons = new ArrayList<>();
     private Paint lTitle, lTab, lTabOn, lCardTitle, lCardMeta, lQuote, lTip, lDate, lClock, lWeather, lClockQuote;
+    private Paint gameMeta, gameTeams;     // the right card's football games
     private Shader lightGradient;
 
     // Shelf
@@ -339,6 +340,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             if (!running) return;
             wake();
             data.refreshIfStale();
+            if (picksOn()) data.refreshGames();
             recs.refreshIfStale();
             checkNotices();
             updatePalette();
@@ -408,6 +410,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         data.addListener(this);
         recs.addListener(this);
         data.refreshIfStale();
+        if (picksOn()) data.refreshGames();
         recs.refreshIfStale();
         if (tvInputs != null) tvInputs.registerCallback(inputCallback, handler);
         handler.postDelayed(tick, 15_000);
@@ -580,6 +583,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         lCardTitle = Ui.text(Ui.semibold, 31 * k, L_INK);
         lCardTitle.setLetterSpacing(0.012f);
         lCardMeta = Ui.text(Ui.medium, 25 * k, L_DIM);
+        gameMeta = Ui.text(Ui.medium, 21 * k, L_DIM);
+        gameTeams = Ui.text(Ui.semibold, 24 * k, L_INK);
         lQuote = Ui.numbers(Ui.regular, 21 * k, L_FAINT);
         lTip = Ui.text(Ui.semibold, 25 * k, L_INK);
         lTip.setTextAlign(Paint.Align.CENTER);
@@ -954,6 +959,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         lTabOn.setColor(tone(L_INK, WHITE));
         lCardTitle.setColor(tone(L_INK, WHITE));
         lCardMeta.setColor(tone(L_DIM, 0xFF98989D));
+        gameMeta.setColor(tone(L_DIM, 0xFF98989D));
+        gameTeams.setColor(tone(L_INK, WHITE));
         lQuote.setColor(tone(L_FAINT, 0xB8FFFFFF));
         lTip.setColor(tone(L_INK, WHITE));
         lDate.setColor(tone(L_DIM, 0xFF98989D));
@@ -2222,6 +2229,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             it = lightButtons.get(topIndex - 3);
             r = topRects[topIndex];
         } else if (zone == Z_CARDS) {
+            if (gamesCard(cardIndex)) return;
             Recs.Pick p = cardIndex < cards.size() ? cards.get(cardIndex) : null;
             if (p == null || p.pkg == null) return;
             it = HomeApps.app(p.pkg, Recs.serviceName(p));
@@ -2287,7 +2295,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             case Z_TOP:
                 if (i >= 3) return label(lightButtons, i - 3);
                 return tabs()[i] + Ui.tr(", aba ", ", tab ") + (i + 1) + Ui.tr(" de 3", " of 3");
-            case Z_CARDS: return i < cards.size() ? pickText(cards.get(i)) : "";
+            case Z_CARDS: return gamesCard(i) ? gamesText() : i < cards.size() ? pickText(cards.get(i)) : "";
             case Z_SHELF: return label(shelf, i);
             case Z_DRAWER: return label(drawerItems, i);
             case WIDGETS: return i == 0 ? weatherText() : quotesText();
@@ -2686,9 +2694,14 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         shadowDeep.setColor(Ui.alpha(0xFF000000, tone(0.14f, 0.32f) + tone(0.2f, 0.28f) * f));
         shadows.draw(c, tmp, r0, DEEP_BLUR * k, shadowDeep);
         c.restore();
-        Backdrop b = p == null ? null : recs.backdrop(p);
+        boolean games = gamesCard(i);
+        Backdrop b = p == null || games ? null : recs.backdrop(p);
         Bitmap img = b == null ? null : (i == 0 ? b.wide : b.tall);
-        if (img != null) {
+        if (games) {
+            fill.setShader(null);
+            fill.setColor(tone(0xFFFFFFFF, 0xFF2C2C2E));
+            c.drawRoundRect(cell, r, r, fill);
+        } else if (img != null) {
             roundImage(c, img, cell, r);
         } else {
             fill.setShader(null);
@@ -2723,6 +2736,12 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             rim.setAlpha(255);
             c.restore();
         }
+        if (games) {
+            drawGames(c, bw, bh, cx, cy, s);
+            String title = Ui.tr("Jogos de hoje", "Today's games");
+            c.drawText(title, base.left, base.bottom + 46 * k, lCardTitle);
+            return;
+        }
         if (p == null) return;
         fitPaint.set(lCardTitle);
         c.drawText(TextUtils.ellipsize(p.title, fitPaint, bw, TextUtils.TruncateAt.END).toString(), base.left, base.bottom + 46 * k, lCardTitle);
@@ -2730,6 +2749,51 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             fitPaint.set(lCardMeta);
             c.drawText(TextUtils.ellipsize(p.meta, fitPaint, bw, TextUtils.TruncateAt.END).toString(), base.left, base.bottom + 80 * k, lCardMeta);
         }
+    }
+
+    /** Minutes a game stays on the card after kickoff (about halftime): then it gives its place to the next ones. */
+    private static final int GAME_SHOWN = 60;
+
+    /** The right card shows today's football games instead of a pick (when the guide has any). */
+    private boolean gamesCard(int i) {
+        return i == 2 && !data.games.isEmpty();
+    }
+
+    /** The games: what's on now and next (a game stays until an hour after kickoff), time · channels above the teams. */
+    private void drawGames(Canvas c, float bw, float bh, float cx, float cy, float s) {
+        List<HomeData.Game> list = data.games;
+        int now = HomeData.gamesMinute(System.currentTimeMillis()), first = 0;
+        while (first < list.size() && list.get(first).minute < now - GAME_SHOWN) first++;
+        c.save();
+        c.translate(cx, cy);
+        c.scale(s, s);
+        float pad = 26 * k, x = -bw / 2 + pad, width = bw - 2 * pad, row = 74 * k, top = -bh / 2 + 22 * k;
+        int rows = (int) ((bh - 36 * k) / row);
+        if (first >= list.size()) {
+            c.drawText(Ui.tr("Sem mais jogos hoje", "No more games today"), x, top + 30 * k, gameMeta);
+        }
+        for (int n = 0; n < rows && first + n < list.size(); n++) {
+            HomeData.Game g = list.get(first + n);
+            float y = top + n * row;
+            fitPaint.set(gameMeta);
+            String meta = g.time + (g.channels.isEmpty() ? "" : "  ·  " + g.channels);
+            c.drawText(TextUtils.ellipsize(meta, fitPaint, width, TextUtils.TruncateAt.END).toString(), x, y + 30 * k, gameMeta);
+            fitPaint.set(gameTeams);
+            c.drawText(TextUtils.ellipsize(g.teams, fitPaint, width, TextUtils.TruncateAt.END).toString(), x, y + 61 * k, gameTeams);
+        }
+        c.restore();
+    }
+
+    /** The games card as TalkBack reads it: the next games, as the card shows them. */
+    private String gamesText() {
+        StringBuilder t = new StringBuilder(Ui.tr("Jogos de hoje", "Today's games"));
+        int now = HomeData.gamesMinute(System.currentTimeMillis()), n = 0;
+        for (HomeData.Game g : data.games) {
+            if (g.minute < now - GAME_SHOWN) continue;
+            t.append(". ").append(g.time).append(", ").append(g.teams).append(", ").append(g.channels);
+            if (++n == 5) break;
+        }
+        return t.toString();
     }
 
     /**

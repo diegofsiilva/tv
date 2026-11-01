@@ -18,16 +18,21 @@ import java.nio.charset.StandardCharsets;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Date;
 import java.util.List;
 import java.util.Locale;
 import java.util.TimeZone;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Optional crypto prices (Binance, every 5 min) and weather/sunrise/sunset (Open-Meteo, every 30 min), cached
  * so the screen opens with numbers. Only fetched while the home screen or the screensaver is visible (the screen asks).
- * Neither source needs a key. Location and currency come from config.properties.
+ * Neither source needs a key. Location and currency come from config.properties. Also today's football games on
+ * Brazilian TV (doentesporfutebol.com.br's guide, every 30 min), for the home screen's right card.
  */
 final class HomeData {
     static final String[] COINS = {"BTC", "ETH", "SOL", "USDT"};
@@ -47,6 +52,32 @@ final class HomeData {
     }
     private static final long PRICES_EVERY = 5 * 60_000L, WEATHER_EVERY = 30 * 60_000L;
     interface Listener { void onData(); }
+
+    // The guide's page: a header per day (" - 01/11/2026 "), then per game the time and competition, the teams and,
+    // after the TV emoji, the channels. Times are Brasília's.
+    private static final String GAMES_URL = "https://doentesporfutebol.com.br/guiadejogos/";
+    private static final long GAMES_EVERY = 30 * 60_000L;
+    private static final TimeZone BRASILIA = TimeZone.getTimeZone("America/Sao_Paulo");
+    private static final Pattern DAY = Pattern.compile(">\\s*-\\s*(\\d{2}/\\d{2}/\\d{4})\\s*<");
+    private static final Pattern GAME = Pattern.compile("&#128343;</span>\\s*(\\d{1,2}):(\\d{2})\\s*([^<]*?)\\s*<br>\\s*<span[^>]*>"
+            + "\\s*([^<]*?)\\s*</span>\\s*<br>\\s*<span[^>]*>&#128250;</span>\\s*([^<]*?)\\s*<");
+    /** Competitions left out of the card: youth (Sub-17, Sub-20), women's, Série B and other countries' lower divisions. */
+    private static final Pattern HIDDEN_GAMES = Pattern.compile("\\bsub-?\\d|feminin|s[ée]rie b\\b|\\d[ªa] divis",
+            Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
+
+    /** A game on today's guide: kickoff (minutes after midnight in Brasília), competition, teams and channels. */
+    static final class Game {
+        final int minute;
+        final String time, league, teams, channels;
+
+        Game(int minute, String league, String teams, String channels) {
+            this.minute = minute;
+            this.time = String.format(Locale.ROOT, "%02d:%02d", minute / 60, minute % 60);
+            this.league = league;
+            this.teams = teams;
+            this.channels = channels;
+        }
+    }
 
     /** BTC, ETH and SOL; in Brazilian reais also the dollar (USDT/BRL), which Binance doesn't list for most currencies. */
     static int coinCount() {
@@ -112,13 +143,17 @@ final class HomeData {
     final double[] changes = {Double.NaN, Double.NaN, Double.NaN, Double.NaN};
     volatile long pricesAt, weatherAt;
     volatile Weather weather = new Weather();
+    /** Today's games by kickoff; empty until fetched (or on a day without any). */
+    volatile List<Game> games = Collections.emptyList();
+    private volatile long gamesAt;
+    private volatile String gamesDay = "";
 
     private final SharedPreferences cache;
     private final ExecutorService io = Executors.newSingleThreadExecutor();
     private final Handler main = new Handler(Looper.getMainLooper());
     private final List<Listener> listeners = new ArrayList<>();
-    private volatile boolean fetchingPrices, fetchingWeather;
-    private volatile long pricesFailedAt, weatherFailedAt;
+    private volatile boolean fetchingPrices, fetchingWeather, fetchingGames;
+    private volatile long pricesFailedAt, weatherFailedAt, gamesFailedAt;
 
     private HomeData(Context c) {
         cache = c.getSharedPreferences("homedata", Context.MODE_PRIVATE);
@@ -178,6 +213,69 @@ final class HomeData {
                 }
             });
         }
+    }
+
+    /** Today's games: the home screen asks (only its standard layout shows them), every minute while visible. */
+    void refreshGames() {
+        long now = System.currentTimeMillis();
+        String today = gamesDay(now);
+        boolean stale = !today.equals(gamesDay) || now - gamesAt > GAMES_EVERY || now < gamesAt;
+        if (fetchingGames || !stale || failedRecently(gamesFailedAt, now)) return;
+        fetchingGames = true;
+        io.execute(() -> {
+            try {
+                games = parseGames(get(GAMES_URL), today);
+                gamesDay = today;
+                gamesAt = System.currentTimeMillis();
+                notifyListeners();
+            } catch (Exception e) {
+                gamesFailedAt = System.currentTimeMillis();
+                AppLog.w("games: " + e.getMessage());
+            } finally {
+                fetchingGames = false;
+            }
+        });
+    }
+
+    /** The date as the guide writes it (dd/MM/yyyy), in Brasília. */
+    private static String gamesDay(long at) {
+        SimpleDateFormat f = new SimpleDateFormat("dd/MM/yyyy", Locale.ROOT);
+        f.setTimeZone(BRASILIA);
+        return f.format(new Date(at));
+    }
+
+    /** Minutes after midnight now, in Brasília (the games' times). */
+    static int gamesMinute(long at) {
+        int offset = BRASILIA.getOffset(at);
+        return (int) (((at + offset) / 60_000L) % (24 * 60));
+    }
+
+    /** The games under today's header, up to the next day's, by kickoff (without HIDDEN_GAMES). */
+    static List<Game> parseGames(String html, String today) {
+        List<Game> out = new ArrayList<>();
+        int from = -1, to = html.length();
+        Matcher day = DAY.matcher(html);
+        while (day.find()) {
+            if (from >= 0) {
+                to = day.start();
+                break;
+            }
+            if (day.group(1).equals(today)) from = day.end();
+        }
+        if (from < 0) return out;
+        Matcher m = GAME.matcher(html).region(from, to);
+        while (m.find()) {
+            String league = text(m.group(3));
+            if (HIDDEN_GAMES.matcher(league).find()) continue;
+            int minute = Integer.parseInt(m.group(1)) * 60 + Integer.parseInt(m.group(2));
+            out.add(new Game(minute, league, text(m.group(4)), text(m.group(5))));
+        }
+        Collections.sort(out, (a, b) -> a.minute - b.minute);
+        return out;
+    }
+
+    private static String text(String html) {
+        return android.text.Html.fromHtml(html, android.text.Html.FROM_HTML_MODE_LEGACY).toString().trim();
     }
 
     private static boolean failedRecently(long at, long now) {

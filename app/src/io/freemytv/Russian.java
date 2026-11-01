@@ -28,6 +28,8 @@ final class Russian {
             case "Crypto": return "Криптовалюты";
             case "24h change": return "изменение за 24 ч";
             case "For You": return "Для вас";
+            case "Today's games": return "Матчи сегодня";
+            case "No more games today": return "Сегодня матчей больше нет";
             case "Couldn't open ": return "Не удалось открыть ";
             case " of ": return " из ";
             case ", tab ": return ", вкладка ";
